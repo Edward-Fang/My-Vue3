@@ -26,10 +26,18 @@ var VueReactivity = (() => {
 
   // packages/reactivity/src/effect.ts
   var activeEffect;
+  function cleanupEffect(effect2) {
+    const { deps } = effect2;
+    for (let i = 0; i < deps.length; i++) {
+      deps[i].delete(effect2);
+    }
+    effect2.deps.length = 0;
+  }
   var ReactiveEffect = class {
     constructor(fn) {
       this.fn = fn;
       this.parent = null;
+      this.deps = [];
       this.active = true;
     }
     run() {
@@ -39,8 +47,9 @@ var VueReactivity = (() => {
       try {
         this.parent = activeEffect;
         activeEffect = this;
+        cleanupEffect(this);
         return this.fn();
-      } catch (e) {
+      } finally {
         activeEffect = this.parent;
       }
     }
@@ -51,7 +60,6 @@ var VueReactivity = (() => {
   }
   var targetMap = /* @__PURE__ */ new WeakMap();
   function track(target, type, key) {
-    debugger;
     if (!activeEffect)
       return;
     let depsMap = targetMap.get(target);
@@ -63,7 +71,24 @@ var VueReactivity = (() => {
       depsMap.set(key, dep = /* @__PURE__ */ new Set());
     }
     let shouldTrack = !dep.has(activeEffect);
-    shouldTrack && dep.add(activeEffect);
+    if (shouldTrack) {
+      dep.add(activeEffect);
+      activeEffect.deps.push(dep);
+    }
+  }
+  function trigger(target, type, key, value, oldValue) {
+    debugger;
+    const depsMap = targetMap.get(target);
+    if (!depsMap)
+      return;
+    let effects = depsMap.get(key);
+    if (effects) {
+      effects = new Set(effects);
+      effects.forEach((effect2) => {
+        if (effect2 !== activeEffect)
+          effect2.run();
+      });
+    }
   }
 
   // node_modules/.pnpm/@vue+shared@3.2.37/node_modules/@vue/shared/dist/shared.esm-bundler.js
@@ -106,7 +131,12 @@ var VueReactivity = (() => {
       return Reflect.get(target, key, receiver);
     },
     set(target, key, value, receiver) {
-      return Reflect.set(target, key, value, receiver);
+      let oldValue = target[key];
+      let result = Reflect.set(target, key, value, receiver);
+      if (oldValue !== value) {
+        trigger(target, "set", key, value, oldValue);
+      }
+      return result;
     }
   };
 

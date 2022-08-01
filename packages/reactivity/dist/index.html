@@ -11,30 +11,20 @@
     <script src="./reactivity.global.js"></script>
     <div id="app"></div>
     <script>
-      // effect 副作用函数，此函数以来的数据发生变化会重新执行
-      // reactive 将数据变成响应式 相当于proxy
-      // shallowReactive, readonly, shallowReadonly 其余的衍生的API
       const { effect, reactive } = VueReactivity
-      // const state = reactive({ name: 'hh', age: 15, address: { num: 50 } })
-      const data = {
-        name: 'hh',
-        age: 15,
-        address: { num: 50 }
-      }
-      const state = reactive(data)
-      const state1 = reactive(data)
-      const state2 = reactive(state1)
-      console.log(state1 === state2)
-
-      // console.log(state.address) // 输出的也是一个proxy
+      const state = reactive({ flag: true, name: 'hh', age: 30 })
       effect(() => {
-        // 默认会先执行一次，对响应式数据取值(取值的过程中数据会依赖于当前的effect)
-        // 之后name和age变化会重新执行effect函数
-        app.innerHTML = state.name + state.age
+        // 期望的是每次执行effect,都清理一边dep
+        console.log('render')
+        app.innerHTML = state.flag ? state.name : state.age
       })
-      // setTimeout(() => {
-      //   state.age = 10
-      // }, 1000)
+      setTimeout(() => {
+        state.flag = false
+        setTimeout(() => {
+          console.log('修改name 原则上不更新')
+          state.name = 'hhh'
+        })
+      }, 1000)
     </script>
   </body>
 </html>
