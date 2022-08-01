@@ -13,7 +13,7 @@ class ReactiveEffect {
   public parent = null
   public deps = []
   public active = true // 默认effect是激活状态
-  constructor(public fn) {
+  constructor(public fn, public scheduler) {
     // 在this上添加用户传递的参数 相当于this.fn = fn
   }
   run() {
@@ -34,13 +34,23 @@ class ReactiveEffect {
       activeEffect = this.parent
     }
   }
+  stop() {
+    if (this.active) {
+      this.active = false
+      cleanupEffect(this) // 停止effect收集
+    }
+  }
 }
 
 // fn会根据状态发生变化，重新执行 可以嵌套着写
-export function effect(fn) {
-  const _effect = new ReactiveEffect(fn)
+export function effect(fn, options: any = {}) {
+  const _effect = new ReactiveEffect(fn, options.scheduler)
 
   _effect.run() // 默认先执行一次
+
+  const runner = _effect.run.bind(_effect) // 绑定this执行
+  runner.effect = _effect // 将effect挂载到runner函数上
+  return runner // runner() runner.effect.stop()
 }
 
 // 多对多 一个effect对应多个属性，一个属性对应多个effect
@@ -71,15 +81,17 @@ export function track(target, type, key) {
 }
 
 export function trigger(target, type, key, value, oldValue) {
-  debugger
   const depsMap = targetMap.get(target)
   if (!depsMap) return // 触发的值不在模板中
   let effects = depsMap.get(key)
-  if(effects){
+  if (effects) {
     effects = new Set(effects)
     effects.forEach(effect => {
       // 执行effect时又执行自己，需要屏蔽
-      if (effect !== activeEffect) effect.run()
+      if (effect !== activeEffect) {
+        // 如果传入了调用函数，就用调用函数
+        effect.scheduler ? effect.scheduler() : effect.run()
+      }
     })
   }
 }

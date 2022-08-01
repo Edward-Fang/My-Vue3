@@ -11,20 +11,52 @@
     <script src="./reactivity.global.js"></script>
     <div id="app"></div>
     <script>
+      let waiting = false
       const { effect, reactive } = VueReactivity
       const state = reactive({ flag: true, name: 'hh', age: 30 })
-      effect(() => {
-        // 期望的是每次执行effect,都清理一边dep
-        console.log('render')
-        app.innerHTML = state.flag ? state.name : state.age
-      })
-      setTimeout(() => {
-        state.flag = false
-        setTimeout(() => {
-          console.log('修改name 原则上不更新')
-          state.name = 'hhh'
-        })
-      }, 1000)
+      // effect(() => {
+      //   // 期望的是每次执行effect,都清理一遍dep
+      //   console.log('render')
+      //   app.innerHTML = state.flag ? state.name : state.age
+      // })
+      // setTimeout(() => {
+      //   state.flag = false
+      //   setTimeout(() => {
+      //     console.log('修改name 原则上不更新')
+      //     state.name = 'hhh'
+      //   })
+      // }, 1000)
+      let runner = effect(
+        () => {
+          app.innerHTML = state.age
+        },
+        {
+          scheduler() {
+            // 调度，如何更新自己决定
+            console.log('run')
+            if(!waiting){
+              waiting = true
+              setTimeout(() => {
+                runner()
+                waiting = false
+              }, 1000)
+            }
+          }
+        }
+      )
+      state.age++
+      state.age++
+      state.age++
+      state.age++
+
+      // effectscope()
+      // runner.effect.stop()
+      // setTimeout(() => {
+      //   state.age = 15
+      //   setTimeout(() => {
+      //     runner()
+      //   }, 2000)
+      // }, 1000)
     </script>
   </body>
 </html>
