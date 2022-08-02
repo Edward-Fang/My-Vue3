@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+  </head>
+  <body>
+    <!-- <script src="../../../node_modules/@vue/reactivity/dist/reactivity.global.js"></script> -->
+    <script src="./reactivity.global.js"></script>
+    <div id="app"></div>
+    <script>
+      // computed effect + 缓存
+      // 计算属性中要有一个缓存标识，依赖有变化才执行get
+      // dirty 表示脏的
+      // 计算属性是具有收集能力的effect 依赖的属性变化了 更新dirty的值
+      const { effect, reactive, computed } = VueReactivity
+      const state = reactive({ firstName: 'h', lastName: 'H' })
+      // const fullName = computed({
+      //   get() { defineProperty中的getter
+      //     console.log('runner')
+      //     return state.firstName + state.lastName
+      //   },
+      //   set(newValue) { defineProperty中的setter
+      //     console.log(newValue)
+      //   }
+      // })
+      const fullName = computed(() => {
+        console.log('runner')
+        return state.firstName + state.lastName
+      })
+      // console.log(fullName)
+      // firstName -> computed effect -> effect
+      effect(() => {
+        app.innerHTML = fullName.value
+      })
+      setTimeout(() => {
+        state.firstName = 'A'
+      }, 1000)
+
+      // fullName.value
+      // fullName.value
+      // fullName.value = 100
+    </script>
+  </body>
+</html>

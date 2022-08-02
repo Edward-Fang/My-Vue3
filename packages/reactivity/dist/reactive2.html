@@ -13,7 +13,7 @@
     <script>
       let waiting = false
       const { effect, reactive } = VueReactivity
-      const state = reactive({ flag: true, name: 'hh', age: 30 })
+      const state = reactive({ flag: true, name: 'hh', age: 30, address: { num: 50 } })
       // effect(() => {
       //   // 期望的是每次执行effect,都清理一遍dep
       //   console.log('render')
@@ -34,7 +34,7 @@
           scheduler() {
             // 调度，如何更新自己决定
             console.log('run')
-            if(!waiting){
+            if (!waiting) {
               waiting = true
               setTimeout(() => {
                 runner()
@@ -44,11 +44,12 @@
           }
         }
       )
-      state.age++
-      state.age++
-      state.age++
-      state.age++
+      // state.age++
+      // state.age++
+      // state.age++
+      // state.age++
 
+      console.log(state.address)
       // effectscope()
       // runner.effect.stop()
       // setTimeout(() => {

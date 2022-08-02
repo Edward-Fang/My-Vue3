@@ -9,7 +9,7 @@ function cleanupEffect(effect) {
   effect.deps.length = 0
 }
 
-class ReactiveEffect {
+export class ReactiveEffect {
   public parent = null
   public deps = []
   public active = true // 默认effect是激活状态
@@ -66,6 +66,14 @@ export function track(target, type, key) {
   if (!dep) {
     depsMap.set(key, (dep = new Set()))
   }
+  trackEffect(dep)
+
+  // 单向 指属性记录effect，反向记录，effect也记录他被哪些属性收集过，为了可以清理
+  // 对象 某个属性 对应 多个effect
+  // WeakMap = {对象：Map{name: Set}}
+  // {对象：{name：[]}}
+}
+export function trackEffect(dep) {
   let shouldTrack = !dep.has(activeEffect) // 这里去重
   if (shouldTrack) {
     dep.add(activeEffect)
@@ -73,17 +81,15 @@ export function track(target, type, key) {
     // 存放的是属性对应的set  name: new Set()
     activeEffect.deps.push(dep)
   }
-
-  // 单向 指属性记录effect，反向记录，effect也记录他被哪些属性收集过，为了可以清理
-  // 对象 某个属性 对应 多个effect
-  // WeakMap = {对象：Map{name: Set}}
-  // {对象：{name：[]}}
 }
 
 export function trigger(target, type, key, value, oldValue) {
   const depsMap = targetMap.get(target)
   if (!depsMap) return // 触发的值不在模板中
   let effects = depsMap.get(key)
+  triggerEffect(effects)
+}
+export function triggerEffect(effects) {
   if (effects) {
     effects = new Set(effects)
     effects.forEach(effect => {

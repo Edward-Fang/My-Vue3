@@ -5,6 +5,10 @@ import { mutableHandlers, ReactiveFlags } from './baseHandler'
 // 如果传入相同的对象，会重复代理
 const reactiveMap = new WeakMap() // WeakMap key只能是对象 不会导致内存泄漏 弱引用
 
+export function isReactive(value){
+  return !!(value && value[ReactiveFlags.IS_REACTIVE])
+}
+
 // 1.实现同一个对象被多次代理，返回同一个对象
 // 2.代理对象被代理，直接返回
 export function reactive(target) {
