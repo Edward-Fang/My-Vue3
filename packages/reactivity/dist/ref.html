@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+  </head>
+  <body>
+    <!-- <script src="../../../node_modules/vue/dist/vue.global.js"></script> -->
+    <script src="./reactivity.global.js"></script>
+    <div id="app"></div>
+    <script>
+      // ref的本质是拷贝，与原始数据没有引用关系
+      // toRef的本质是引用，与原始数据有关联
+      // toRefs接收一个对象作为参数，它会遍历对象身上的所有属性，然后挨个调用toRef执行
+      const { ref, effect, reactive, toRef, toRefs, proxyRefs } = VueReactivity
+      // const flag = ref(false)
+      // effect(() => {
+      //   app.innerHTML = flag.value ? 'hh' : 'h'
+      // })
+      // setTimeout(() => {
+      //   flag.value = !flag.value
+      // }, 1000)
+
+      // const school = reactive({name: 'hh', age: 13})
+      // let { name, age } = toRefs(school)
+      // effect(() => {
+      //   app.innerHTML = `${name.value}${age.value}`
+      // })
+      // setTimeout(() => {
+      //   age.value = 100
+      // }, 1000)
+
+      // 后续都是在模板中取值，会自动去掉ref
+      // 使用数据时，都是把响应式的数据 toRefs 在模板中时不用加 .value
+      let name = ref('hh')
+      let age = ref('13')
+      let school = proxyRefs({name, age})
+      // effect(() => { 
+      //   app.innerHTML = name.value + age.value 
+      // })
+      effect(() => {
+        app.innerHTML = school.name + school.age
+      })
+    </script>
+  </body>
+</html>

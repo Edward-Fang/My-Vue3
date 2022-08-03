@@ -66,20 +66,22 @@ export function track(target, type, key) {
   if (!dep) {
     depsMap.set(key, (dep = new Set()))
   }
-  trackEffect(dep)
+  trackEffects(dep)
 
   // 单向 指属性记录effect，反向记录，effect也记录他被哪些属性收集过，为了可以清理
   // 对象 某个属性 对应 多个effect
   // WeakMap = {对象：Map{name: Set}}
   // {对象：{name：[]}}
 }
-export function trackEffect(dep) {
-  let shouldTrack = !dep.has(activeEffect) // 这里去重
-  if (shouldTrack) {
-    dep.add(activeEffect)
-    // 让effect记录对应的dep，稍后清理会用到
-    // 存放的是属性对应的set  name: new Set()
-    activeEffect.deps.push(dep)
+export function trackEffects(dep) {
+  if (activeEffect) {
+    let shouldTrack = !dep.has(activeEffect) // 这里去重
+    if (shouldTrack) {
+      dep.add(activeEffect)
+      // 让effect记录对应的dep，稍后清理会用到
+      // 存放的是属性对应的set  name: new Set()
+      activeEffect.deps.push(dep)
+    }
   }
 }
 
@@ -87,19 +89,17 @@ export function trigger(target, type, key, value, oldValue) {
   const depsMap = targetMap.get(target)
   if (!depsMap) return // 触发的值不在模板中
   let effects = depsMap.get(key)
-  triggerEffect(effects)
+  effects && triggerEffects(effects)
 }
-export function triggerEffect(effects) {
-  if (effects) {
-    effects = new Set(effects)
-    effects.forEach(effect => {
-      // 执行effect时又执行自己，需要屏蔽
-      if (effect !== activeEffect) {
-        // 如果传入了调用函数，就用调用函数
-        effect.scheduler ? effect.scheduler() : effect.run()
-      }
-    })
-  }
+export function triggerEffects(effects) {
+  effects = new Set(effects)
+  effects.forEach(effect => {
+    // 执行effect时又执行自己，需要屏蔽
+    if (effect !== activeEffect) {
+      // 如果传入了调用函数，就用调用函数
+      effect.scheduler ? effect.scheduler() : effect.run()
+    }
+  })
 }
 
 // 原先用栈来解决 先进后出

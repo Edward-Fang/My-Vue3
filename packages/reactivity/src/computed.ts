@@ -1,5 +1,5 @@
 import { isFunction } from '@vue/shared'
-import { ReactiveEffect, trackEffect, triggerEffect } from './effect'
+import { ReactiveEffect, trackEffects, triggerEffects } from './effect'
 
 class ComputedRefImpl {
   public effect
@@ -13,12 +13,12 @@ class ComputedRefImpl {
     this.effect = new ReactiveEffect(getter, () => {
       // 之后依赖的属性发生变化调用此函数
       if (!this._dirty) this._dirty = true
-      triggerEffect(this.dep)
+      triggerEffects(this.dep)
     })
   }
   get value() {
     // 要做依赖收集，不然不能更新
-    trackEffect(this.dep)
+    trackEffects(this.dep)
     if (this._dirty) {
       // 如果是脏的，就再执行原函数
       this._dirty = false

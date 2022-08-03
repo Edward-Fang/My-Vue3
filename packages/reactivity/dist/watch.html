@@ -7,26 +7,56 @@
     <title>Document</title>
   </head>
   <body>
-    <script src="../../../node_modules/vue/dist/vue.global.js"></script>
-    <!-- <script src="./reactivity.global.js"></script> -->
+    <!-- <script src="../../../node_modules/vue/dist/vue.global.js"></script> -->
+    <script src="./reactivity.global.js"></script>
     <div id="app"></div>
     <script>
       // watch 本质是effect 内部会对数据进行依赖收集
       // 第一个参数依赖收集，第二个参数scheduler
-      const { watch, reactive } = Vue
-      const state = reactive({ name: 'h', address: { num: 1 } })
+      const { watch, reactive } = VueReactivity
+      const state = reactive({ name: 'h', age: 10, address: { num: 1 } })
 
       // 监控对象无法区分新值老值
       // 监控函数，函数返回值是老值，更新获取新值
+      // watch(
+      //   () => state.address.num,
+      //   function (newValue, oldValue) {
+      //     console.log(newValue, oldValue)
+      //   }
+      // )
+      // setTimeout(() => {
+      //   state.address.num = 2
+      // }, 1000)
+
+      let i = 2000
+      function getData(timer) {
+        return new Promise((res, rej) => {
+          setTimeout(() => {
+            res(timer)
+          }, timer)
+        })
+      }
+      // 第一次调用 注入一个取消函数
+      // 第二次调用 执行第一次注入的函数
+      // 第三次调用 执行第二次注入的函数
       watch(
-        () => state.address.num,
-        function (newValue, oldValue) {
-          console.log(newValue, oldValue)
-        }
+        () => state.age,
+        async (newValue, oldValue, onCleanup) => {
+          // 闭包缓存的clean是上次的
+          let clean = false
+          onCleanup(() => {
+            clean = true
+          })
+          i -= 1000
+          let r = await getData(i)
+          if (!clean) {
+            document.body.innerHTML = r
+          }
+        },
+        { flush: 'sync' }
       )
-      setTimeout(() => {
-        state.address.num = 2
-      }, 1000)
+      state.age = 20
+      state.age = 30
     </script>
   </body>
 </html>
