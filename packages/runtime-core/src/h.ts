@@ -1,5 +1,6 @@
 import { isArray, isObject } from '@vue/shared'
 import { createVnode, isVnode } from './vnode'
+
 // render(h('h1', 'hello'), app)
 // render(h('h1', null, h('span', null, 'hihi'), h('span', null, '999')), app)
 // render(h('h1', h('span', null, 'hihi')), app)
@@ -9,21 +10,21 @@ import { createVnode, isVnode } from './vnode'
 //   app
 // )
 
-// type => 标签 propsChildren => 属性 children => 儿子
+// type  标签 propsChildren   放属性 children  放儿子
 export function h(type, propsChildren, children) {
   let l = arguments.length
-  // h('div',{style:{"color"：“red”}})   h('div',h('span'))
-  // h('div',[h('span'),h('span')])   h('div','hello')
+  // h('div',{style:{"color"：“red”}})
+  // h('div',h('span'))
+  // h('div',[h('span'),h('span')])
+  // h('div','hello')
   if (l === 2) {
-    // 样式对象 | 子节点(单个或数组) | h()对象
-    // 将儿子包装成数组，因为元素可以循环创建 文本不需要包装
+    // 将儿子包装成数组，元素可以循环创建。 文本不需要包装
     if (isObject(propsChildren) && !isArray(propsChildren)) {
       // h('div',h('span'))
       if (isVnode(propsChildren)) {
         return createVnode(type, null, [propsChildren])
       }
-      // 是属性 h('div',{style:{"color"：“red”}})
-      return createVnode(type, propsChildren)
+      return createVnode(type, propsChildren) // 是属性 h('div',{style:{"color"：“red”}})
     }
     // 是数组  h('div',[h('span'),h('span')])
     // 文本也走这里 h('div','hello')

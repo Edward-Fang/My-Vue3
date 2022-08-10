@@ -1,10 +1,14 @@
 import { invokeArrayFns, isNumber, isString, ShapeFlags } from '@vue/shared'
 import { ReactiveEffect } from '@vue/reactivity'
+import { getSequence } from './sequence'
+
 import { Text, createVnode, isSameVnode, Fragment } from './vnode'
+import { queueJob } from './scheduler'
+import { createComponentInstance, setupComponent } from './component'
+import { hasPropsChanged, updateProps } from './componentProps'
 
 export function createRenderer(renderOptions) {
   let {
-    // 增删改查
     insert: hostInsert,
     remove: hostRemove,
     setElementText: hostSetElementText,
@@ -16,52 +20,399 @@ export function createRenderer(renderOptions) {
     patchProp: hostPatchProp
   } = renderOptions
 
+  const normalize = (children, i) => {
+    // 检测如果是字符串的话，就把字符串转换成文本节点
+    if (isString(children[i]) || isNumber(children[i])) {
+      let vnode = createVnode(Text, null, children[i])
+      children[i] = vnode
+    }
+    return children[i]
+  }
+  // 挂载子节点
   const mountChildren = (children, container) => {
     for (let i = 0; i < children.length; i++) {
-      // const child = normalize(children, i)
-      patch(null, children[i], container)
+      const child = normalize(children, i)
+      patch(null, child, container)
     }
   }
 
-  const mountElement = (vnode, container) => {
+  // 把虚拟节点递归转换成真实dom
+  const mountElement = (vnode, container, anchor) => {
     let { type, props, children, shapeFlag } = vnode
-    // 创建元素
-    let el = vnode.el = hostCreateElement(type)
+    // 根据 type 创建元素，并且把真实dom挂载到这个虚拟节点上
+    let el = (vnode.el = hostCreateElement(type))
 
-    // 创建属性 如果有props就循环添加  props 包括 style class event attrs
+    // 如果有 props 就循环添加  props 包括 style class event attrs
     if (props) {
       for (let key in props) {
         hostPatchProp(el, key, null, props[key])
       }
     }
-    // 创建孩子 文本或数组
+    // 如果是文本
     if (shapeFlag & ShapeFlags.TEXT_CHILDREN) {
       hostSetElementText(el, children)
     }
+    // 如果是数组
     else if (shapeFlag & ShapeFlags.ARRAY_CHILDREN) {
       mountChildren(children, el)
     }
     // 把真实节点插入到容器中
-    hostInsert(el, container)
+    hostInsert(el, container, anchor)
+  }
+  const unmount = (vnode) => {
+    let { type } = vnode
+    if (type === Fragment) {
+      return unmountChildren(vnode.children)
+    }
+    hostRemove(vnode.el)
   }
 
-  const patch = (n1, n2, container) => {
-    if(n1 === n2) return
-    if(n1 == null){
-      // 初次渲染
-      // 后续组件的初次渲染 目前是元素的初始化渲染
-      mountElement(n2, container)
-    } else {
-      // 更新流程
+  // n1 老vnode n2 新vnode container
+  const processText = (n1, n2, container) => {
+    if (n1 === null) {
+      // 创建出n2对应的真实dom，并且把真实dom挂载到这个虚拟节点上，并且把真实dom插入到容器中
+      hostInsert((n2.el = hostCreateText(n2.children)), container)
+    }
+    // 都是文本
+    else {
+      // 虽然文本的内容发生变化了，但是我们可以复用老的节点
+      const el = (n2.el = n1.el)
+      if (n1.children !== n2.children) {
+        hostSetText(el, n2.children)
+      }
     }
   }
 
+  const patchProps = (oldProps, newProps, el) => {
+    // 新的里面有直接用新的覆盖掉即可
+    for (let key in newProps) {
+      hostPatchProp(el, key, oldProps[key], newProps[key])
+    }
+    // {
+    //   style: {color: 'red'}
+    // }
+    // {
+    // }
+    // 如果老的里面有新的里面没有，则是删除
+    for (let key in oldProps) {
+      if (newProps[key] == null) {
+        hostPatchProp(el, key, oldProps[key], undefined)
+      }
+    }
+  }
+
+  //卸载儿子
+  const unmountChildren = (children) => {
+    for (let i = 0; i < children.length; i++) {
+      unmount(children[i])
+    }
+  }
+
+  const patchKeyedChildren = (c1, c2, el) => {
+    let i = 0
+    let e1 = c1.length - 1
+    let e2 = c2.length - 1
+
+    while (i <= e1 && i <= e2) {
+      const n1 = c1[i]
+      const n2 = c2[i]
+      // 这样做就是比较两个节点的属性和子节点
+      if (isSameVnode(n1, n2)) {
+        patch(n1, n2, el)
+      } else {
+        break
+      }
+      i++
+    }
+    while (i <= e1 && i <= e2) {
+      const n1 = c1[e1]
+      const n2 = c2[e2]
+      if (isSameVnode(n1, n2)) {
+        patch(n1, n2, el)
+      } else {
+        break
+      }
+      e1--
+      e2--
+    }
+    // 有一方比较完了，要么就新增，要么就删除
+    if (i > e1) {
+      if (i <= e2) {
+        while (i <= e2) {
+          const nextPos = e2 + 1
+          //根据下一个人的索引来看参照物
+          // 如果下一个索引小于新节点的长度那么就是在新节点的前面插入，否则就是在尾部插入
+          const anchor = nextPos < c2.length ? c2[nextPos].el : null
+          patch(null, c2[i], el, anchor)
+          i++
+        }
+      }
+    } else if (i > e2) {
+      if (i <= e1) {
+        while (i <= e1) {
+          unmount(c1[i])
+          i++
+        }
+      }
+    }
+
+    // common sequence + unmount
+    // i比e2大说明有要卸载的
+    // i到e1之间的就是要卸载的
+
+    // 优化完毕
+    // 乱序比对
+    let s1 = i
+    let s2 = i
+    const keyToNewIndexMap = new Map() // key -> newIndex
+    for (let i = s2; i <= e2; i++) {
+      keyToNewIndexMap.set(c2[i].key, i)
+    }
+
+    // 循环老的元素 看一下新的里面有没有，如果有说明要比较差异，没有要添加到列表中，老的有新的没有要删除
+    const toBePatched = e2 - s2 + 1 // 新的总个数
+    const newIndexToOldIndexMap = new Array(toBePatched).fill(0) // 一个记录是否比对过的映射表
+    for (let i = s1; i <= e1; i++) {
+      const oldChild = c1[i] // 老的孩子
+      let newIndex = keyToNewIndexMap.get(oldChild.key) // 用老的孩子去新的里面找
+      if (newIndex == undefined) {
+        unmount(oldChild) // 多余的删掉
+      } else {
+        // 新的位置对应的老的位置 , 如果数组里放的值>0说明 已经pactch过了
+        newIndexToOldIndexMap[newIndex - s2] = i + 1 // 用来标记当前所patch过的结果
+        patch(oldChild, c2[newIndex], el)
+      }
+    } // 到这这是新老属性和儿子的比对，没有移动位置
+
+    // 获取最长递增子序列
+    let increment = getSequence(newIndexToOldIndexMap)
+
+    // 需要移动位置
+    let j = increment.length - 1
+    for (let i = toBePatched - 1; i >= 0; i--) {
+      // 3 2 1 0
+      let index = i + s2
+      let current = c2[index] // 找到h
+      let anchor = index + 1 < c2.length ? c2[index + 1].el : null
+      if (newIndexToOldIndexMap[i] === 0) {
+        // 创建   [5 3 4 0]  -> [1,2]
+        patch(null, current, el, anchor)
+      } else {
+        // 不是0 说明是已经比对过属性和儿子的了
+        if (i != increment[j]) {
+          hostInsert(current.el, el, anchor) // 目前无论如何都做了一遍倒叙插入，其实可以不用的， 可以根据刚才的数组来减少插入次数
+        } else {
+          j--
+        }
+      }
+      // 这里发现缺失逻辑 我需要看一下current有没有el。如果没有el说明是新增的逻辑
+      // 最长递增子序列来实现  vue2 在移动元素的时候会有浪费  优化
+    }
+  }
+
+  // n1 老节点 n2 新节点 el
+  const patchChildren = (n1, n2, el) => {
+    const c1 = n1.children
+    const c2 = n2.children
+    const prevShapeFlag = n1.shapeFlag
+    const { shapeFlag } = n2
+
+    // 新节点是文本
+    if (shapeFlag & ShapeFlags.TEXT_CHILDREN) {
+      // 如果旧节点是数组
+      if (prevShapeFlag & ShapeFlags.ARRAY_CHILDREN) {
+        // 卸载老的儿子节点
+        unmountChildren(c1)
+      }
+      // 文本 文本
+      // 文本 空
+      // 上面的情况也会走这个逻辑
+      if (c1 !== c2) {
+        hostSetElementText(el, c2)
+      }
+    } else {
+      // 如果老的是数组
+      if (prevShapeFlag & ShapeFlags.ARRAY_CHILDREN) {
+        // 新节点和老节点都是数组
+        if (shapeFlag & ShapeFlags.ARRAY_CHILDREN) {
+          patchKeyedChildren(c1, c2, el)
+        }
+        // 之前是数组，现在不是数组，就把之前的删掉
+        // 现在不是数组 （文本和空 删除以前的）
+        else {
+          unmountChildren(c1)
+        }
+      } else {
+        // 老的是文本，新的也是文本
+        if (prevShapeFlag & ShapeFlags.TEXT_CHILDREN) {
+          hostSetElementText(el, '')
+        }
+        // 老的是文本新的是数组
+        if (shapeFlag & ShapeFlags.ARRAY_CHILDREN) {
+          mountChildren(c2, el)
+        }
+      }
+    }
+  }
+
+  // 先复用节点、再比较属性、再比较儿子。
+  const patchElement = (n1, n2) => {
+    // 复用节点
+    let el = (n2.el = n1.el)
+    let oldProps = n1.props || {}
+    let newProps = n2.props || {}
+    // 对比属性
+    patchProps(oldProps, newProps, el)
+    // 对比儿子
+    patchChildren(n1, n2, el)
+  }
+  const processElement = (n1, n2, container, anchor) => {
+    if (n1 === null) {
+      mountElement(n2, container, anchor)
+    } else {
+      // 更新逻辑
+      patchElement(n1, n2)
+    }
+  }
+
+  const processFragment = (n1, n2, container) => {
+    if (n1 == null) {
+      mountChildren(n2.children, container)
+    } else {
+      patchChildren(n1, n2, container)
+    }
+  }
+
+  const mountComponent = (vnode, container, anchor) => {
+    // 1.创造一个组件实例
+    let instance = (vnode.component = createComponentInstance(vnode))
+
+    // 2.给实例上赋值
+    setupComponent(instance)
+    //3. 创建一个 effect
+
+    setupRenderEffect(instance, container, anchor)
+  }
+  const updateComponentPreRender = (instance, next) => {
+    instance.next = null // next清空
+    instance.vnode = next // 实例上最新的虚拟节点
+    updateProps(instance.props, next.props)
+  }
+  const setupRenderEffect = (instance, container, anchor) => {
+    const { render } = instance
+    const componentUpdateFn = () => {
+      // 初始化
+      if (!instance.isMounted) {
+        let { bm, m } = instance
+        if (bm) {
+          invokeArrayFns(bm)
+        }
+        const subTree = render.call(instance.proxy, instance.proxy)
+        patch(null, subTree, container, anchor)
+        if (m) {
+          invokeArrayFns(m)
+        }
+        instance.subTree = subTree
+        instance.isMounted = true
+      } else {
+        let { next, bu, u } = instance
+        if (next) {
+          // 更新前 我也需要拿到最新的属性来进行更新
+          updateComponentPreRender(instance, next)
+        }
+        // 组件内部更新
+        // 数据变化了之后，会重新生成 subTree 虚拟DOM ，再重新走patch方法。
+        if (bu) {
+          invokeArrayFns(bu)
+        }
+        const subTree = render.call(instance.proxy, instance.proxy)
+        patch(instance.subTree, subTree, container, anchor)
+        instance.subTree = subTree
+        if (u) {
+          invokeArrayFns(u)
+        }
+      }
+    }
+    // 创建一个 effect ，将render()函数作为副作用函数，
+    // 把任务更新推入到异步任务中去,实现组件的异步更新
+    const effect = new ReactiveEffect(componentUpdateFn, () => queueJob(instance.update))
+    // 我们将组件强制更新的逻辑保存到了组件的实例上，后续可以使用
+    const update = (instance.update = effect.run.bind(effect))
+    update()
+  }
+
+  const shouldUpdateComponent = (n1, n2) => {
+    const { props: prevProps, children: prevChildren } = n1
+    const { props: nextProps, children: nextChildren } = n2
+    if (prevProps === nextProps) return false
+    if (prevChildren || nextChildren) {
+      return true
+    }
+    return hasPropsChanged(prevProps, nextProps)
+  }
+
+  const updateComponent = (n1, n2) => {
+    // instance.props 是响应式的，而且可以更改  属性的更新会导致页面重新渲染
+    const instance = (n2.component = n1.component) // 对于元素而言，复用的是dom节点，对于组件来说复用的是实例
+
+    // 需要更新就强制调用组件的update方法
+    if (shouldUpdateComponent(n1, n2)) {
+      instance.next = n2 // 将新的虚拟节点放到next属性上
+      instance.update() // 统一调用update方法来更新
+    }
+
+    // updateProps(instance,prevProps,nextProps); // 属性更新
+  }
+  const processComponent = (n1, n2, container, anchor) => {
+    // 组件挂载
+    if (n1 == null) {
+      mountComponent(n2, container, anchor)
+    } else {
+      // 组件更新
+      updateComponent(n1, n2)
+    }
+  }
+
+  // 核心方法 n1 老的虚拟节点 n2 新的虚拟节点 container 容器
+  const patch = (n1, n2, container, anchor = null) => {
+    // 老节点和新节点一样，这个时候不需要更新
+    if (n1 === n2) {
+      return
+    }
+    // 判断两个元素是否相同，如果不相同，先把老的节点卸载，
+    // 然后再执行后面的逻辑
+    if (n1 && !isSameVnode(n1, n2)) {
+      unmount(n1)
+      n1 = null
+    }
+
+    const { type, shapeFlag } = n2
+    // 初次渲染，不需要更新
+    switch (type) {
+      case Text:
+        processText(n1, n2, container)
+        break
+      case Fragment:
+        processFragment(n1, n2, container)
+        break
+      default:
+        // 当前节点是元素
+        if (shapeFlag & ShapeFlags.ELEMENT) {
+          // 后序还有组建的初次渲染，目前是元素的初始化渲染
+          processElement(n1, n2, container, anchor)
+        } else if (shapeFlag & ShapeFlags.COMPONENT) {
+          processComponent(n1, n2, container, anchor)
+        }
+    }
+  }
+
+  // vnode 虚拟节点 container 容器
   const render = (vnode, container) => {
     if (vnode == null) {
       // 卸载的逻辑
       // 判断一下容器中是否有虚拟节点
       if (container._vnode) {
-        // unmount(container._vnode)
+        unmount(container._vnode)
       }
     } else {
       // 第一次的时候 vnode 是 null
@@ -75,3 +426,12 @@ export function createRenderer(renderOptions) {
     render
   }
 }
+
+// 注意事项：
+// 文本的处理需要自己添加类型，不能通过document.createElement来创建
+// 如果传入的vnode 是 null的话，则是卸载逻辑，需要删除DOM节点
+
+// 更新的情况分析：
+// 1.如果前后完全没有关系 div -> p ，那么久删除老的 添加新的节点
+// 2.老的和新的一样，如果属性不一样，就比对属性，然后更新属性
+// 3.如果属性都一样，就比较儿子
